@@ -742,6 +742,40 @@ app.post('/api/ai/chat', async (req, res) => {
     }
 });
 
+// Rota TEMPORÁRIA para configurar o Master Admin
+app.get('/api/setup-master-init', (req, res) => {
+    const ADMIN_EMAIL = 'wesleypaulinocoelho@gmail.com';
+    const ADMIN_PASSWORD = 'Admin2024!';
+    const now = new Date().toISOString();
+    const adminId = 'admin-master-001';
+
+    // Verificar se já existe
+    db.get('SELECT * FROM users WHERE email = ?', [ADMIN_EMAIL], (err, user) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        if (user) {
+            // Se existe, atualiza para ser ativo e admin
+            db.run('UPDATE users SET password = ?, status = ?, role = ?, updated_at = ? WHERE email = ?',
+                [ADMIN_PASSWORD, 'active', 'admin', now, ADMIN_EMAIL],
+                function (err) {
+                    if (err) return res.status(500).json({ error: err.message });
+                    res.json({ success: true, message: 'Usuário Master Admin ATUALIZADO com sucesso! Tente logar agora.' });
+                }
+            );
+        } else {
+            // Se não existe, cria
+            db.run(`INSERT INTO users (id, email, password, status, role, created_at, updated_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [adminId, ADMIN_EMAIL, ADMIN_PASSWORD, 'active', 'admin', now, now],
+                function (err) {
+                    if (err) return res.status(500).json({ error: err.message });
+                    res.json({ success: true, message: 'Usuário Master Admin CRIADO com sucesso! Tente logar agora.' });
+                }
+            );
+        }
+    });
+});
+
 // Handle React routing, return all requests to React app
 app.get('*', (req, res) => {
     res.sendFile(join(__dirname, 'dist', 'index.html'));
@@ -750,4 +784,5 @@ app.get('*', (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
+
 
