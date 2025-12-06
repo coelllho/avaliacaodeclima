@@ -1,4 +1,3 @@
-
 import express from 'express';
 import cors from 'cors';
 import sqlite3 from 'sqlite3';
@@ -17,10 +16,10 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'X-User-ID'],
-  credentials: true
+    origin: '*', // Permite qualquer origem
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'X-User-ID'],
+    credentials: true
 }));
 app.use(express.json());
 app.use(express.static(join(__dirname, 'dist')));
@@ -742,38 +741,77 @@ app.post('/api/ai/chat', async (req, res) => {
     }
 });
 
-// Rota TEMPORÁRIA para configurar o Master Admin
+
+// Rota TEMPORÁRIA para configurar o Master Admin e Migrar Banco de Dados
 app.get('/api/setup-master-init', (req, res) => {
     const ADMIN_EMAIL = 'wesleypaulinocoelho@gmail.com';
     const ADMIN_PASSWORD = 'Admin2024!';
     const now = new Date().toISOString();
     const adminId = 'admin-master-001';
 
-    // Verificar se já existe
-    db.get('SELECT * FROM users WHERE email = ?', [ADMIN_EMAIL], (err, user) => {
-        if (err) return res.status(500).json({ error: err.message });
+    // 1. Tentar adicionar colunas que podem estar faltando (Migração)
+    const migrationQueries = [
+        "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'",
+        "ALTER TABLE users ADD COLUMN owner_id TEXT"
+    ];
 
-        if (user) {
-            // Se existe, atualiza para ser ativo e admin
-            db.run('UPDATE users SET password = ?, status = ?, role = ?, updated_at = ? WHERE email = ?',
-                [ADMIN_PASSWORD, 'active', 'admin', now, ADMIN_EMAIL],
-                function (err) {
-                    if (err) return res.status(500).json({ error: err.message });
-                    res.json({ success: true, message: 'Usuário Master Admin ATUALIZADO com sucesso! Tente logar agora.' });
-                }
-            );
-        } else {
-            // Se não existe, cria
-            db.run(`INSERT INTO users (id, email, password, status, role, created_at, updated_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [adminId, ADMIN_EMAIL, ADMIN_PASSWORD, 'active', 'admin', now, now],
-                function (err) {
-                    if (err) return res.status(500).json({ error: err.message });
-                    res.json({ success: true, message: 'Usuário Master Admin CRIADO com sucesso! Tente logar agora.' });
-                }
-            );
+    let completedMigrations = 0;
+
+    // Função auxiliar para rodar migrações em sequência (ignora erro se coluna já existe)
+    const runMigration = (index) => {
+        if (index >= migrationQueries.length) {
+            // Migrações terminaram, prosseguir com criação do usuário
+            createOrUpdateAdmin();
+            return;
         }
-    });
+
+        db.run(migrationQueries[index], (err) => {
+            // Ignoramos erro aqui porque se a coluna já existir, vai dar erro, o que é esperado/ok
+            if (err) {
+                console.log(`Nota: Migração ${index} ignorada (provavelmente já existe): ${err.message}`);
+            } else {
+                console.log(`Sucesso: Migração ${index} executada.`);
+            }
+            runMigration(index + 1);
+        });
+    };
+
+    const createOrUpdateAdmin = () => {
+        // Verificar se já existe
+        db.get('SELECT * FROM users WHERE email = ?', [ADMIN_EMAIL], (err, user) => {
+            if (err) return res.status(500).json({ error: 'Erro ao buscar usuário: ' + err.message });
+
+            if (user) {
+                // Se existe, atualiza
+                db.run('UPDATE users SET password = ?, status = ?, role = ?, updated_at = ? WHERE email = ?',
+                    [ADMIN_PASSWORD, 'active', 'admin', now, ADMIN_EMAIL],
+                    function (err) {
+                        if (err) return res.status(500).json({ error: 'Erro ao atualizar: ' + err.message });
+                        res.json({
+                            success: true,
+                            message: 'Banco migrado e Usuário Master Admin ATUALIZADO com sucesso! Tente logar agora.'
+                        });
+                    }
+                );
+            } else {
+                // Se não existe, cria
+                db.run(`INSERT INTO users (id, email, password, status, role, created_at, updated_at) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                    [adminId, ADMIN_EMAIL, ADMIN_PASSWORD, 'active', 'admin', now, now],
+                    function (err) {
+                        if (err) return res.status(500).json({ error: 'Erro ao criar: ' + err.message });
+                        res.json({
+                            success: true,
+                            message: 'Banco migrado e Usuário Master Admin CRIADO com sucesso! Tente logar agora.'
+                        });
+                    }
+                );
+            }
+        });
+    };
+
+    // Iniciar processo
+    runMigration(0);
 });
 
 // Handle React routing, return all requests to React app
@@ -784,5 +822,3 @@ app.get('*', (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
-
-
